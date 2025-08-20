@@ -1,0 +1,25 @@
+{
+    "manifest_version": 2,
+    "browser_specific_settings": {
+        "gecko": {
+          "id": "seb-creds-copy@philip2809",
+          "strict_min_version": "69.0"
+        }
+      },    
+    "name": "SEB Creds Copy",
+    "version": "0.0.1",
+    "description": "Easily copy SEB credentials to use their api",
+    "permissions": [
+        "storage",
+        "webRequest",
+        "webRequestBlocking",
+        "https://apps.seb.se/ssc/*",
+        "https://id.seb.se/login/logged-out*"
+    ],
+    "browser_action": {
+        "default_icon": "icon.svg"
+    },
+    "background": {
+        "scripts": ["background.js"]
+    }
+}
