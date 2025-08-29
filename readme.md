@@ -14,5 +14,4 @@ The project has 3 parts.
 
 ### TODO:
 - Run this in a container and extentaion sends a request with creds to update
-- invoice upload for updates (will do when i have invoices again)
 - Fetch data from different providers to get recipets etc. Kivra for alot of places
