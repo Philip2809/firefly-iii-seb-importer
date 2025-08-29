@@ -1,13 +1,13 @@
 const { assetAccountsMap } = require("../vars")
 
 
-function generateTransferTransaction(fromAcc, toAcc, transaction) {
+function generateTransferTransaction(fromAcc, toAcc, transaction, standingTransfer) {
     return {
         type: 'transfer',
         source_id: assetAccountsMap.get(fromAcc),
         destination_id: assetAccountsMap.get(toAcc),
 
-        description: transaction.descriptive_text,
+        description: standingTransfer ? standingTransfer.info : transaction.descriptive_text,
         date: `${transaction.entry_date_time}+00:00`,
         amount: transaction.transaction_amount.amount.replace('-', ''),
         currency_code: "SEK",

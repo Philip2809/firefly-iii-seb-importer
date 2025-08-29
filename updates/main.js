@@ -4,7 +4,10 @@ const { parseTransactions } = require("./parsers/parser");
 const { generateTransferTransaction } = require("./parsers/transfer");
 const { fetchSebAccounts, fetchSebTransactions, fetchSebTransactionDetails } = require("./seb-api");
 const { assetAccountsMap, invoices } = require("./vars");
+const standingTransfers = require('./.standing-transfers.json');
+
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
 
 const readline = require('readline');
 
@@ -86,8 +89,8 @@ async function run() {
             throw new Error(`Balance mismatch for account ${fireflyAccount.attributes.iban}: Firefly balance ${fireflyAccount.attributes.current_balance}, SEB balance ${sebAccount.balance.amount}, diff sum ${diffSum}, verify balance ${verifyBalance}`);
         }
 
-        transferTransactions.set(sebAccount, transactionsSinceLast.filter(t => [180, 182].includes(t.transaction_type.code)));
-        const transactionsToParse = transactionsSinceLast.filter(t => ![180, 182].includes(t.transaction_type.code));
+        transferTransactions.set(sebAccount, transactionsSinceLast.filter(t => [180, 182, 184].includes(t.transaction_type.code)));
+        const transactionsToParse = transactionsSinceLast.filter(t => ![180, 182, 184].includes(t.transaction_type.code));
 
         console.log(`Found ${transactionsToParse.length} transactions to upload for account ${fireflyAccount.attributes.iban}`);
 
@@ -100,21 +103,32 @@ async function run() {
         console.log(`Processing ${transactions.length} transfer transactions for SEB account: ${sebAccount.bban}`);
 
         for (const transaction of transactions) {
-            if (transaction.transaction_type.code !== 182) continue; // I can only link 182 transactions
-            if (!transaction.link) throw new Error('182 transfer should have a link for details!');
-            const details = await fetchSebTransactionDetails(transaction);
-            const toAccountNumber = details.additional_info.to_account;
+            if (alreadyHandeledIds.has(transaction.id)) continue; // Skip if already handeled as a match
+            let toAccountNumber, standingTransfer;
+            if (transaction.transaction_type.code === 182) {
+                if (!transaction.link) throw new Error('182 transfer should have a link for details!');
+                const details = await fetchSebTransactionDetails(transaction);
+                toAccountNumber = details.additional_info.to_account;
+            } else if (transaction.transaction_type.code === 184) {
+                standingTransfer = standingTransfers.find(st => 
+                    st.text === transaction.descriptive_text &&
+                    st.amount === Number(transaction.transaction_amount.amount.replace('-', ''))
+                );
+                if (!standingTransfer) throw new Error('Found a standing transfer; but it was not defined in the .standing-transfers.json file!');
+                toAccountNumber = standingTransfer.to_account;
+            } else continue; // I can only link 182 and 184 transactions
+
             const toSebAccount = sebAccounts.find(sa => sa.bban === toAccountNumber);
             if (!toSebAccount) throw new Error('Expected there to be a seb accound!')
             const transactionsToSearch = transferTransactions.get(toSebAccount);
             const possbileMatches = transactionsToSearch.filter(t =>
                 t.value_date === transaction.value_date &&
-                t.transaction_type.code === 180 &&
+                t.transaction_type.code === (transaction.transaction_type.code === 184 ? 184 : 180) && // 184 --> 184, 182 --> 180
                 t.transaction_amount.amount === transaction.transaction_amount.amount.replace('-', '')
             );
 
             if (possbileMatches.length === 0) {
-                console.log(`No matching 180 transaction found for 182 transaction ${transaction.id}, skipping...`);
+                console.log(`No matching transactions found for ${transaction.id}, skipping...`);
                 continue;
             }
 
@@ -156,7 +170,7 @@ async function run() {
             alreadyHandeledIds.add(match.id);
             alreadyHandeledIds.add(transaction.id);
 
-            uploadTransactions.push(generateTransferTransaction(sebAccount.bban, toAccountNumber, transaction))
+            uploadTransactions.push(generateTransferTransaction(sebAccount.bban, toAccountNumber, transaction, standingTransfer))
         }
     }
 
@@ -189,7 +203,9 @@ async function run() {
 
     console.log('Uploading transactions to Firefly...');
     for (const transaction of uploadTransactions) {
-        await uploadTransaction(transaction, invoices.get(transaction.id));
+        const invoice = invoices.get(transaction.id);
+        delete transaction.id; // Remove id for firefly upload
+        await uploadTransaction(transaction, invoice);
     }
 
     console.log('all is done!')

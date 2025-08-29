@@ -15,7 +15,6 @@ async function parseTransactions(account, transactions) {
             case 71: // Card foreign purchase
             case 990: // Other
             case 10: // Direct debit
-            case 184: // Standing transfer
                 console.log('Proccesing generic transaction...');
                 parsed.push(generateGenericTransaction(account, transaction));
                 break;
@@ -48,7 +47,7 @@ async function parseTransactions(account, transactions) {
                 // Invoice handling & parsing
                 let invoice;
                 if (paymentDetail.additional_info.einvoiceUrl) invoice = await fetchSebTransactionInvoice(account, transaction);
-                parsed.push(generatePaymentTransaction(account, destAccountId, transaction, detail));
+                parsed.push(generatePaymentTransaction(account, destAccountId, transaction, paymentDetail));
                 if (invoice) invoices.set(transaction.id, invoice);
                 break;
 

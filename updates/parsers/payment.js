@@ -2,6 +2,7 @@ const { assetAccountsMap } = require('../vars');
 
 function generatePaymentTransaction(account, destAccountId, transaction, detail) {
     return {
+        id: transaction.id,
         type: 'withdrawal',
         source_id: assetAccountsMap.get(account.bban),
         destination_id: destAccountId,
