@@ -1,4 +1,5 @@
 const { fetchFireflyAccounts, makeFireflyAccount } = require('../firefly-api');
+const { fetchKivraReceipts } = require('../kivra-api');
 const { fetchSebTransactionDetails, fetchSebTransactionInvoice } = require('../seb-api');
 const { assetAccountsMap, expenseAccountsMap, revenueAccountsMap, invoices } = require('../vars');
 const { generateGenericTransaction } = require('./generic');
@@ -9,6 +10,9 @@ async function parseTransactions(account, transactions) {
 
     const parsed = [];
     console.log(transactions.length, 'transactions to parse');
+
+    //const kivraData = fetchKivraReceipts();
+
     for (const transaction of transactions) {
         switch (transaction.transaction_type.code) {
             case 41: // Card purchase

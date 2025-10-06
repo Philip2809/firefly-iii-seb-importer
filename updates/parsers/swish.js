@@ -1,4 +1,5 @@
 const { revenueAccountsMap, expenseAccountsMap, assetAccountsMap } = require("../vars");
+const crypto = require('crypto');
 
 function generateSwishTransaction(account, transaction, detail) {
     let base;
@@ -42,13 +43,12 @@ function generateSwishTransaction(account, transaction, detail) {
         amount: transaction.transaction_amount.amount.replace('-', ''),
         currency_code: "SEK",
 
-        notes: `
-Message1: ${transaction.message1} \n
-${transaction.message3 ? `Message3: ${transaction.message3}` : ''} \n
-${detail?.additional_info?.swish_reference_id ? `Swish Reference ID: ${detail?.additional_info?.swish_reference_id} \n` : ''}
-`,
-        interest_date: transaction.value_date,
-        process_date: transaction.posting_date,
+        external_id: crypto.createHash('sha256').update(transaction.id).digest('hex'),
+
+        notes: ``,
+        book_date: transaction.value_date,
+        interest_date: transaction.posting_date,
+        process_date: `${transaction.entry_date_time}+00:00`,
     }
 }
 

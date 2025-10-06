@@ -43,6 +43,35 @@ async function fetchSebTransactions(sebAccountId, nextPagingCursor = null, rows 
     };
 }
 
+async function fetchSebReserved(sebAccountId) {
+    console.log('Fetching reserved transactions from SEB');
+    const res = await fetch(`https://apps.seb.se/ssc/payments/accounts/api/accounts/${sebAccountId}/reserved_amounts`, {
+        method: 'GET',
+        headers: SEB_HEADERS,
+    });
+
+    console.log('Response status:', res.status);
+    if (!res.ok) {
+        console.log(sebAccountId);
+        throw new Error(`Failed to fetch transactions: ${res.statusText}`);
+    }
+    return await res.json();
+}
+
+async function fetchSebUpcoming(sebAccountId) {
+    console.log('Fetching upcoming transactions from SEB');
+    const res = await fetch(`https://apps.seb.se/ssc/payments/accounts/api/accounts/${sebAccountId}/upcoming_events`, {
+        method: 'GET',
+        headers: SEB_HEADERS,
+    });
+
+    console.log('Response status:', res.status);
+    if (!res.ok) {
+        throw new Error(`Failed to fetch transactions: ${res.statusText}`);
+    }
+    return await res.json();
+}
+
 async function fetchSebTransactionDetails(transaction) {
     const res = await fetch('https://apps.seb.se/ssc/payments/accounts/api/accounts/transactionDetails', {
         method: 'POST',
@@ -122,7 +151,9 @@ module.exports = {
     fetchSebTransactions,
     fetchSebTransactionDetails,
     fetchSebTransactionInvoice,
-    fetchSebFundsValue
+    fetchSebFundsValue,
+    fetchSebReserved,
+    fetchSebUpcoming
 }
 
 

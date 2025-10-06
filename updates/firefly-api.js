@@ -4,7 +4,7 @@ const crypto = require('crypto');
 
 async function fetchFireflyAccounts(type = 'all') {
     console.log('Fetching Firefly accounts, of type:', type);
-    const res = await fetch(`${FIREFLY_BASE_URL}/api/v1/accounts?limit=10000&type=${type}`, {
+    const res = await fetch(`${FIREFLY_BASE_URL}/api/v1/accounts?limit=10000&type=${type}&date=2050-01-01`, {
         headers: FIREFLY_HEADERS
     });
     console.log('Response status:', res.status);
@@ -29,6 +29,48 @@ async function fetchFireflyTransactions(fireflyAccountId, limit = 1) {
     const data = await res.json();
     console.log('Found', data.data.length, 'transactions!');
     return data.data;
+}
+
+async function fetchFireflyTagTransactions(tag) {
+    console.log('Fetching Firefly tag transactions, of tag:', tag);
+    const res = await fetch(`${FIREFLY_BASE_URL}/api/v1/tags/${tag}/transactions`, {
+        headers: FIREFLY_HEADERS
+    });
+    console.log('Response status:', res.status);
+    if (!res.ok) {
+        throw new Error(`Failed to fetch accounts: ${res.statusText}`);
+    }
+    const data = await res.json();
+    console.log('Parsing tag data, length:', data.data.length);
+    return data.data;
+}
+
+async function deleteFireflyTransaction(transactionId) {
+    console.log('Deleting firefly transaction:', transactionId);
+    const res = await fetch(`${FIREFLY_BASE_URL}/api/v1/transactions/${transactionId}`, {
+        method: 'DELETE',
+        headers: FIREFLY_HEADERS,
+    });
+
+    console.log('Response status:', res.status);
+    if (!res.ok) {
+        throw new Error(`Failed to delete firefly transaction: ${res.statusText}`);
+    }
+    return true;
+}
+
+async function fireflyPurgeData() {
+    console.log('Purging firefly data');
+    const res = await fetch(`${FIREFLY_BASE_URL}/api/v1/data/purge`, {
+        method: 'DELETE',
+        headers: FIREFLY_HEADERS,
+    });
+
+    console.log('Response status:', res.status);
+    if (!res.ok) {
+        throw new Error(`Failed to purge firefly data: ${res.statusText}`);
+    }
+    return await res.text();
 }
 
 async function updateFireflyAccount(fireflyAccountId, data) {
@@ -140,8 +182,10 @@ module.exports = {
     makeFireflyAccount,
     fetchFireflyAccounts,
     fetchFireflyTransactions,
+    fetchFireflyTagTransactions,
     uploadTransaction,
-    updateFireflyAccount
+    updateFireflyAccount,
+    deleteFireflyTransaction,
+    fireflyPurgeData
 }
-
 

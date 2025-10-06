@@ -5,11 +5,13 @@ const { generateTransferTransaction } = require("./parsers/transfer");
 const { fetchSebAccounts, fetchSebTransactions, fetchSebTransactionDetails } = require("./seb-api");
 const { assetAccountsMap, invoices } = require("./vars");
 const standingTransfers = require('./.standing-transfers.json');
-
+const crypto = require('crypto');
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
 
 const readline = require('readline');
+const { addReservedTransactions, removeReservedTransactions } = require("./reserved");
+const { upcomingTransactions } = require("./upcoming");
 
 // Create an interface for input and output
 const rl = readline.createInterface({
@@ -31,11 +33,13 @@ const alreadyHandeledIds = new Set(); // Ids of transactions we can parse as tra
 
 run();
 async function run() {
+    await removeReservedTransactions();
     const sebAccounts = await fetchSebAccounts();
     const fireflyAssetAccounts = await fetchFireflyAccounts('asset');
 
     // Verify that each seb account has a corresponding firefly account
     for (const sebAccount of sebAccounts) {
+        if (process.argv[2] && !process.argv.includes(sebAccount.bban)) continue; // Only process the account given as argument
         const fireflyAccount = fireflyAssetAccounts.find(fireflyAccount => fireflyAccount.attributes.iban === sebAccount.iban)
         // If no matching account found, throw an error for now, later we can make so that is creates the account etc etc.
         if (!fireflyAccount) throw new Error('No matching Firefly account found for SEB account with IBAN: ' + sebAccount.iban);
@@ -45,6 +49,10 @@ async function run() {
         assetAccountsMap.set(sebAccount.bban, fireflyAccount.id);
     }
 
+    fireflyAssetAccounts.forEach(fireflyAccount => {
+        assetAccountsMap.set(fireflyAccount.attributes.account_number, fireflyAccount.id);
+    });
+
     console.log('All SEB accounts have a matching Firefly account');
     console.log('------------------------------------');
     const uploadTransactions = [];
@@ -52,9 +60,36 @@ async function run() {
     for (const [sebAccount, fireflyAccount] of sebIdToFireflyAccountMap.entries()) {
         console.log(`SEB Account ID: ${sebAccount.id}, Firefly Account ID: ${fireflyAccount.id}, IBAN: ${fireflyAccount.attributes.iban}`);
 
-        const lastTransaction = await fetchFireflyTransactions(fireflyAccount.id);
-        const lastTransactionDate = lastTransaction[0]?.attributes?.transactions[0]?.date;
-        if (!lastTransactionDate) throw new Error('No last transaction date found..')
+        const sebTransactions = (await fetchSebTransactions(sebAccount.id, null, 200))
+        const fireflyTransactions = await fetchFireflyTransactions(fireflyAccount.id, 200);
+        const alreadyHandeledHashes = new Set();
+        fireflyTransactions.forEach(t => t.attributes.transactions.forEach(tx => {
+            tx.external_id?.split('|').forEach(id => alreadyHandeledHashes.add(id));
+        }));
+
+        console.log(alreadyHandeledHashes);
+        let transactionsSinceLast = sebTransactions.transactions.filter(transaction => {
+            const hash = crypto.createHash('sha256').update(transaction.id).digest('hex');
+            return !alreadyHandeledHashes.has(hash);
+        })
+
+        // filter stuff out before the change of system
+        const changeDate = new Date('2025-09-29T12:00:00').getTime();
+        transactionsSinceLast = transactionsSinceLast.filter(t => new Date(t.entry_date_time).getTime() > changeDate);
+
+        // TODO: rewrite this system; fetch 200 from firefly and seb, compare the two lists to find the transactions that are missing in firefly
+        /*const lastTransaction = await fetchFireflyTransactions(fireflyAccount.id, 1);
+        const lastTransactionDate = lastTransaction[0]?.attributes?.transactions[0]?.process_date;
+        if (!lastTransactionDate) {
+            console.log('No last transaction date found, this means it is a new account correct????', sebAccount.bban);
+            const answer = await askQuestion('Is this a new account/empty account? (y/n): ');
+            if (answer.toLowerCase() !== 'y') {
+                console.log('Aborting, exiting...');
+                rl.close();
+                return;
+            }
+            emptyAcc = true;
+        }
         const lastTransactionAmount = lastTransaction[0]?.attributes?.transactions[0]?.amount;
 
         const transactionsSinceLast = [];
@@ -70,6 +105,12 @@ async function run() {
                 Number(lastTransactionAmount) === Number(t.transaction_amount.amount.replace('-', ''))
             );
 
+            if (emptyAcc) {
+                transactionsSinceLast.push(...transactions.transactions);
+                toFetchMore = false;
+                continue;
+            }
+
             if (lastTransactionMatchIndex === -1) {
                 transactionsSinceLast.push(...transactions.transactions);
                 pagingCursor = transactions.nextPagingCursor;
@@ -78,14 +119,24 @@ async function run() {
 
             transactionsSinceLast.push(...transactions.transactions.splice(0, lastTransactionMatchIndex));
             toFetchMore = false;
-        }
+        }*/
 
+        // Now we have all transactions to upload!
+        transactionsSinceLast.forEach(transaction => {
+            const hash = crypto.createHash('sha256').update(transaction.id).digest('hex');
+            console.log('Transaction to upload:', transaction.entry_date_time, transaction.transaction_amount.amount, transaction.transaction_type.code, transaction.descriptive_text, hash);
+        })
         const diffSum = transactionsSinceLast.reduce((acc, t) => {
             return acc + Number(t.transaction_amount.amount);
         }, 0);
         const verifyBalance = Number(fireflyAccount.attributes.current_balance) + diffSum;
         const EPSILON = 0.00001; // 0.01 öre
         if (Math.abs(verifyBalance - Number(sebAccount.balance.amount)) > EPSILON) {
+            console.log(transactionsSinceLast, fireflyAccount);
+            console.log('MISSING STUFF:', verifyBalance - Number(sebAccount.balance.amount));
+            transactionsSinceLast.forEach(t => {
+                console.log(t.entry_date_time, t.transaction_amount.amount, t.transaction_type.code, t.descriptive_text);
+            });
             throw new Error(`Balance mismatch for account ${fireflyAccount.attributes.iban}: Firefly balance ${fireflyAccount.attributes.current_balance}, SEB balance ${sebAccount.balance.amount}, diff sum ${diffSum}, verify balance ${verifyBalance}`);
         }
 
@@ -119,15 +170,15 @@ async function run() {
             } else continue; // I can only link 182 and 184 transactions
 
             const toSebAccount = sebAccounts.find(sa => sa.bban === toAccountNumber);
-            if (!toSebAccount) throw new Error('Expected there to be a seb accound!')
-            const transactionsToSearch = transferTransactions.get(toSebAccount);
+            // if (!toSebAccount) throw new Error('Expected there to be a seb accound!')
+            const transactionsToSearch = transferTransactions.get(toSebAccount) || [];
             const possbileMatches = transactionsToSearch.filter(t =>
                 t.value_date === transaction.value_date &&
                 t.transaction_type.code === (transaction.transaction_type.code === 184 ? 184 : 180) && // 184 --> 184, 182 --> 180
                 t.transaction_amount.amount === transaction.transaction_amount.amount.replace('-', '')
             );
 
-            if (possbileMatches.length === 0) {
+            if (possbileMatches.length === 0 && !standingTransfer) {
                 console.log(`No matching transactions found for ${transaction.id}, skipping...`);
                 continue;
             }
@@ -136,7 +187,7 @@ async function run() {
                 t.entry_date_time === transaction.entry_date_time
             )
 
-            if (!match) {
+            if (!match && possbileMatches.length > 0) {
                 console.log('++++++++++++++++++++');
                 console.log('Could not auto match transfer. There is', possbileMatches.length, 'possible matches.');
                 console.log('Original transaction:', transaction.descriptive_text);
@@ -162,15 +213,19 @@ async function run() {
                 if (possbileMatches[index]) match = possbileMatches[index];
             }
 
-            if (!match) {
+            if (!match && !standingTransfer) {
                 console.log('If no match at this point, then something is wrong. Skipping this transaction.');
+                continue;
+            } else if (standingTransfer) {
+                alreadyHandeledIds.add(transaction.id);
+                uploadTransactions.push(generateTransferTransaction(sebAccount.bban, toAccountNumber, transaction, undefined, standingTransfer))
                 continue;
             }
 
             alreadyHandeledIds.add(match.id);
             alreadyHandeledIds.add(transaction.id);
 
-            uploadTransactions.push(generateTransferTransaction(sebAccount.bban, toAccountNumber, transaction, standingTransfer))
+            uploadTransactions.push(generateTransferTransaction(sebAccount.bban, toAccountNumber, transaction, match, standingTransfer))
         }
     }
 
@@ -182,6 +237,12 @@ async function run() {
         uploadTransactions.push(...restTransactions.map(t => generateGenericTransaction(sebAccount, t)));
     }
 
+    // Reserved stuff
+    for (const [sebAccount, fireflyAccount] of sebIdToFireflyAccountMap.entries()) {
+        await addReservedTransactions(sebAccount, fireflyAccount);
+        await upcomingTransactions(sebAccount);
+    }
+
     console.log('Transactions to upload:', uploadTransactions.length);
     if (uploadTransactions.length === 0) {
         console.log('Nothing needs to be done!')
@@ -191,7 +252,8 @@ async function run() {
 
     // Ask user to check transactions before uploading
     uploadTransactions.forEach(t => {
-        console.log(t.type, t.description, t.amount, new Date(t.date).toLocaleString());
+        console.log(t.type, t.description, t.amount, new Date(t.date).toLocaleString('se-SV'), new Date(t.process_date).toLocaleString('se-SV'));
+        console.log('full', t);
     })
 
     const answer = await askQuestion('Do you want to upload these transactions? (y/n): ');
