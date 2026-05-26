@@ -19,6 +19,7 @@ async function parseTransactions(account, transactions) {
             case 71: // Card foreign purchase
             case 990: // Other
             case 10: // Direct debit
+            case 186: // Instant Credit Transfer (stripe uses, however i got no use for the extra info) 
                 console.log('Proccesing generic transaction...');
                 parsed.push(generateGenericTransaction(account, transaction));
                 break;

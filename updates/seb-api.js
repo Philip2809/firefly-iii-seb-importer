@@ -122,8 +122,7 @@ async function fetchSebTransactionInvoice(account, transaction) {
     if (!resInvoice.ok) {
         throw new Error(`Failed to fetch invoice for transaction ${transaction.id}: ${resInvoice.statusText}`);
     }
-    console.log('Invoice fetched!');
-    const invoice = await resInvoice.bytes()
+    const invoice = await resInvoice.arrayBuffer()
     return invoice;
 }
 

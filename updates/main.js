@@ -61,14 +61,14 @@ async function run() {
         console.log(`SEB Account ID: ${sebAccount.id}, Firefly Account ID: ${fireflyAccount.id}, IBAN: ${fireflyAccount.attributes.iban}`);
 
         const sebTransactions = (await fetchSebTransactions(sebAccount.id, null, 200))
-        const fireflyTransactions = await fetchFireflyTransactions(fireflyAccount.id, 200);
+        const fireflyTransactions = await fetchFireflyTransactions(fireflyAccount.id, 250);
         const alreadyHandeledHashes = new Set();
         fireflyTransactions.forEach(t => t.attributes.transactions.forEach(tx => {
             tx.external_id?.split('|').forEach(id => alreadyHandeledHashes.add(id));
         }));
 
-        console.log(alreadyHandeledHashes);
         let transactionsSinceLast = sebTransactions.transactions.filter(transaction => {
+            if (Number(transaction.transaction_amount.amount) === 0) return false;
             const hash = crypto.createHash('sha256').update(transaction.id).digest('hex');
             return !alreadyHandeledHashes.has(hash);
         })
@@ -134,6 +134,10 @@ async function run() {
         if (Math.abs(verifyBalance - Number(sebAccount.balance.amount)) > EPSILON) {
             console.log(transactionsSinceLast, fireflyAccount);
             console.log('MISSING STUFF:', verifyBalance - Number(sebAccount.balance.amount));
+            console.log('verifyBalance', verifyBalance);
+            console.log('sebAccount balance', sebAccount.balance.amount);
+            console.log('diffSum', diffSum);
+            console.log('firefly balance', fireflyAccount.attributes.current_balance);
             transactionsSinceLast.forEach(t => {
                 console.log(t.entry_date_time, t.transaction_amount.amount, t.transaction_type.code, t.descriptive_text);
             });
@@ -165,7 +169,10 @@ async function run() {
                     st.text === transaction.descriptive_text &&
                     st.amount === Number(transaction.transaction_amount.amount.replace('-', ''))
                 );
-                if (!standingTransfer) throw new Error('Found a standing transfer; but it was not defined in the .standing-transfers.json file!');
+                if (!standingTransfer) {
+                    console.log("standing transfer not found!", transaction);
+                    throw new Error('Found a standing transfer; but it was not defined in the .standing-transfers.json file!');
+                }
                 toAccountNumber = standingTransfer.to_account;
             } else continue; // I can only link 182 and 184 transactions
 
@@ -253,7 +260,7 @@ async function run() {
     // Ask user to check transactions before uploading
     uploadTransactions.forEach(t => {
         console.log(t.type, t.description, t.amount, new Date(t.date).toLocaleString('se-SV'), new Date(t.process_date).toLocaleString('se-SV'));
-        console.log('full', t);
+        // console.log('full', t);
     })
 
     const answer = await askQuestion('Do you want to upload these transactions? (y/n): ');

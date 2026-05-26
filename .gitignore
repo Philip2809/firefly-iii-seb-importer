@@ -1,2 +1,5 @@
 .success.txt
+.errors.txt
+.firefly.json
+.standing-transfers.json
 data/
